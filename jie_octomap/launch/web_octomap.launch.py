@@ -1,28 +1,10 @@
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess, OpaqueFunction, TimerAction
+from launch.actions import DeclareLaunchArgument, ExecuteProcess
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 import os
-
-
-def build_auto_load_action(context):
-    package_path = LaunchConfiguration("map_package").perform(context)
-    return [
-        ExecuteProcess(
-            cmd=[
-                "/bin/bash",
-                "-lc",
-                "source /home/robot/ros2_ws/install/setup.bash && "
-                "ros2 service call /map_package_manager/load_package "
-                "jie_map_msgs/srv/LoadNavigationMapPackage "
-                f"\"{{package_path: '{package_path}'}}\"",
-            ],
-            output="screen",
-        )
-    ]
-
 
 def generate_launch_description():
     pkg_share = get_package_share_directory("jie_octomap")
@@ -30,7 +12,7 @@ def generate_launch_description():
 
     map_package_arg = DeclareLaunchArgument(
         "map_package",
-        default_value="/home/robot/maps/map",
+        default_value=os.path.expanduser("~/maps/map"),
         description="Path to saved OctoMap map package directory",
     )
     http_port_arg = DeclareLaunchArgument(
@@ -124,6 +106,11 @@ def generate_launch_description():
         executable="map_package_manager",
         name="map_package_manager",
         output="screen",
+        parameters=[
+            {
+                "autoload_package_path": LaunchConfiguration("map_package"),
+            }
+        ],
     )
 
     map_save_gui_node = Node(
@@ -147,13 +134,6 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration("launch_rosbridge")),
     )
 
-    auto_load_map = TimerAction(
-        period=2.0,
-        actions=[
-            OpaqueFunction(function=build_auto_load_action)
-        ],
-    )
-
     return LaunchDescription(
         [
             map_package_arg,
@@ -167,6 +147,5 @@ def generate_launch_description():
             map_save_gui_node,
             http_server,
             rosbridge_node,
-            auto_load_map,
         ]
     )

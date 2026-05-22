@@ -39,9 +39,12 @@ from rclpy.executors import SingleThreadedExecutor
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from tf2_ros import Buffer, TransformException, TransformListener
 from visualization_msgs.msg import Marker
-from vtkmodules.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
 import vtk
 from vtk.util import numpy_support
+try:
+    from vtkmodules.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
+except ModuleNotFoundError:
+    from vtk.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
 
 
 class SaveMapClient(Node):

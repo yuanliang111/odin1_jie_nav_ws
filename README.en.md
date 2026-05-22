@@ -36,7 +36,7 @@ jie_3d_nav/
 ├── jie_map_msgs/        # Custom srv interfaces
 ├── jie_octomap/         # OctoMap import, management, editing, Web/GUI tools
 ├── octo_planner/        # 3D planner, controller, navigation launch files
-├── worlds/              # Example Gazebo worlds
+├── jie_octomap/worlds/  # Example Gazebo worlds
 └── install_deps_humble.sh
 ```
 
@@ -50,6 +50,19 @@ jie_3d_nav/
 - Open3D C++ development files
 - PyQt5, VTK, NumPy, Pillow, PyYAML
 - Optional: `rosbridge_server`, used by the Web page to access ROS through websocket
+
+### ROS 2 Foxy Reproduction Notes
+
+This project primarily targets Ubuntu 22.04 / ROS 2 Humble. Ubuntu 20.04 / ROS 2 Foxy can be used to validate the core pipeline, including Gazebo world or PCD map import into OctoMap and 3D path planning, with a few extra environment details:
+
+- Install the Foxy Python point cloud helper package: `sudo apt-get install ros-foxy-sensor-msgs-py`.
+- Ubuntu 20.04 commonly provides `python3-vtk7`, whose Qt entry point is `vtk.qt.QVTKRenderWindowInteractor`; newer VTK versions use `vtkmodules.qt.QVTKRenderWindowInteractor`.
+- If Open3D C++ is installed outside the system search paths, pass `Open3D_DIR` or `CMAKE_PREFIX_PATH` so CMake can find `Open3DConfig.cmake`.
+- If `pcd_to_octomap_node` fails with `libtbb.so.12: cannot open shared object file`, add the Open3D installation `lib/` directory to the runtime library path, for example:
+
+```bash
+export LD_LIBRARY_PATH=/path/to/open3d_install/lib:${LD_LIBRARY_PATH}
+```
 
 The base build does not require these two packages:
 
@@ -71,7 +84,7 @@ If CMake cannot find Open3D, install the Open3D C++ development files and make s
 
 ## Build
 
-Build from the ROS 2 workspace root:
+Build from the ROS 2 workspace root. Do not run `colcon build` directly inside the source package directory `src/jie_3d_nav`; doing so creates extra `build/`, `install/`, and `log/` directories in the source tree:
 
 ```bash
 cd ~/ros2_ws
@@ -80,10 +93,23 @@ colcon build --packages-select jie_map_msgs jie_octomap octo_planner
 source install/setup.bash
 ```
 
+If Open3D C++ is not in the default CMake search path:
+
+```bash
+colcon build --packages-select jie_map_msgs jie_octomap octo_planner \
+  --cmake-args -DOpen3D_DIR=/path/to/open3d_install/lib/cmake/Open3D
+```
+
 If the source directory has been moved, old CMake cache may still point to an old path. Clean the cache and rebuild:
 
 ```bash
 colcon build --packages-select jie_map_msgs jie_octomap octo_planner --cmake-clean-cache
+```
+
+If you accidentally built inside the source package directory, remove the ignored temporary outputs from that source directory:
+
+```bash
+rm -rf build install log
 ```
 
 ## Quick Start
@@ -121,6 +147,59 @@ This launch starts:
 - `map_package_manager`
 - `pcd_map_import_gui`
 - `octo_planner/jie_path_node`
+
+`pcd_map_import_gui` previews the loaded PCD on the left and provides common cleanup tools before conversion:
+
+- `Recommend conversion parameters`: estimate point spacing, point count, and map extent from the current working cloud, then fill in the OctoMap resolution, minimum points per voxel, and minimum connected voxel count.
+- `Preprocess downsample (m)`: voxel-downsample the GUI working cloud when reading the PCD. If this value is changed, select/read the PCD again to apply it to the current cloud.
+- `Enable selection cube`: show a movable selection cube. Use `W/S`, `A/D`, and `Q/E` to move along X/Y/Z.
+- `Erase points inside cube`: remove points inside the cube.
+- `Keep points inside cube`: keep only points inside the cube and remove outside points. This is useful for cropping a large global point cloud before OctoMap conversion.
+
+For sparse or large PCD maps, click `Recommend conversion parameters` before converting to OctoMap. After conversion, check `kept_voxels` and `occupied_voxels` in the terminal logs:
+
+- If `kept_voxels` is only dozens or hundreds, the resolution is usually too fine, or the minimum points per voxel is too high.
+- If `kept_voxels` is very large, the resolution is usually too fine or the crop area is too large. Qt/Web display and planning may become slow.
+- For sparse point clouds, a practical starting point is `min_points_per_voxel=1` and `min_cluster_voxels=1`.
+
+After a successful conversion, the terminal should show logs similar to:
+
+```text
+Loaded PCD file: ... source_points=... kept_voxels=... occupied_voxels=...
+Preprocess mask rebuilt...
+Preblocked costmap rebuilt...
+```
+
+When saving a map package, the GUI defaults to the current user's `~/maps` directory. If you choose a custom save root, make sure the current user can write to it. Avoid `/home/robot/maps` unless you are actually running in that robot account/environment.
+
+If the GUI does not show the converted OctoMap on the right side, or saving the map package reports `not ready` / `octomap not ready`, first check whether `pcd_to_octomap_node` has exited. A common cause is that an Open3D runtime dependency is not visible to the dynamic linker, for example:
+
+```text
+error while loading shared libraries: libtbb.so.12: cannot open shared object file
+```
+
+Check the missing dependency with:
+
+```bash
+ldd install/jie_octomap/lib/jie_octomap/pcd_to_octomap_node | grep -E "not found|tbb"
+```
+
+If `libtbb.so.12` is not found, add the Open3D installation `lib/` directory to `LD_LIBRARY_PATH` and restart the launch:
+
+```bash
+export LD_LIBRARY_PATH=/path/to/open3d_install/lib:${LD_LIBRARY_PATH}
+ros2 launch jie_octomap import_pcd_map.launch.py
+```
+
+You can also override the conversion defaults from the command line:
+
+```bash
+ros2 launch jie_octomap import_pcd_map.launch.py \
+  resolution:=0.5 \
+  voxel_downsample_m:=0.0 \
+  min_points_per_voxel:=1 \
+  min_cluster_voxels:=1
+```
 
 ### Import a ROS 2D Occupancy Grid Map
 
@@ -215,11 +294,36 @@ Common parameters:
 - `launch_rosbridge`: whether to start `rosbridge_websocket`.
 - `launch_map_gui`: whether to also start the Qt save/load window.
 
+If `8080` is already occupied, Python's HTTP server reports `OSError: [Errno 98] Address already in use`. This is a local port conflict, not a robot/IP issue. Use another port:
+
+```bash
+ros2 launch jie_octomap web_octomap.launch.py \
+  map_package:=~/maps/map \
+  http_port:=8081
+```
+
+If the Web page needs to communicate with ROS, start `rosbridge_websocket`:
+
+```bash
+ros2 launch jie_octomap web_octomap.launch.py \
+  map_package:=~/maps/map \
+  http_port:=8081 \
+  launch_rosbridge:=true
+```
+
+If rosbridge is not installed:
+
+```bash
+sudo apt install ros-${ROS_DISTRO}-rosbridge-server
+```
+
 Open in a browser:
 
 ```text
-http://<robot-ip>:8080
+http://localhost:8081
 ```
+
+When accessing from another device, use the IP address of the machine running this launch, for example `http://<host-ip>:8081`. Use the robot IP only when the Web service is running on the robot.
 
 ### Web Function Test
 

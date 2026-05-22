@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <memory>
 #include <queue>
+#include <sstream>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>

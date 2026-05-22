@@ -1,4 +1,5 @@
 #include <memory>
+#include <sstream>
 #include <string>
 
 #include "octomap/AbstractOcTree.h"

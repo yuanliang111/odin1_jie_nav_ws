@@ -14,6 +14,8 @@ import rclpy
 from geometry_msgs.msg import PointStamped, PoseStamped
 from nav_msgs.msg import Path as PathMsg
 from jie_map_msgs.srv import SaveNavigationMapPackage
+from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
+from rcl_interfaces.srv import SetParameters
 from PyQt5.QtCore import QEvent, QObject, Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
     QApplication,
@@ -27,6 +29,7 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -37,9 +40,12 @@ from sensor_msgs.msg import PointCloud2
 from sensor_msgs_py import point_cloud2
 from std_msgs.msg import String
 from visualization_msgs.msg import Marker
-from vtkmodules.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
 import vtk
 from vtk.util import numpy_support
+try:
+    from vtkmodules.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
+except ModuleNotFoundError:
+    from vtk.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
 
 
 class PcdMapImportNode(Node):
@@ -52,6 +58,9 @@ class PcdMapImportNode(Node):
             durability=DurabilityPolicy.TRANSIENT_LOCAL,
         )
         self.file_pub = self.create_publisher(String, "/pcd_file_cmd", QoSProfile(depth=1))
+        self.converter_param_client = self.create_client(
+            SetParameters, "/pcd_to_octomap/set_parameters"
+        )
         self.start_pub = self.create_publisher(PointStamped, "/start_point", qos)
         self.goal_pub = self.create_publisher(PointStamped, "/goal_point", qos)
         self.goal_pose_pub = self.create_publisher(PoseStamped, "/goal_pose", qos)
@@ -85,6 +94,57 @@ class PcdMapImportNode(Node):
         msg = String()
         msg.data = file_path
         self.file_pub.publish(msg)
+
+    def set_converter_params(
+        self,
+        resolution: float,
+        voxel_downsample_m: float,
+        min_points_per_voxel: int,
+        min_cluster_voxels: int,
+        timeout_sec: float = 2.0,
+    ) -> tuple[bool, str]:
+        if not self.converter_param_client.wait_for_service(timeout_sec=timeout_sec):
+            return False, "参数服务 /pcd_to_octomap/set_parameters 不可用，请确认转换节点仍在运行。"
+
+        request = SetParameters.Request()
+        request.parameters = [
+            self._double_parameter("resolution", resolution),
+            self._double_parameter("voxel_downsample_m", voxel_downsample_m),
+            self._int_parameter("min_points_per_voxel", min_points_per_voxel),
+            self._int_parameter("min_cluster_voxels", min_cluster_voxels),
+        ]
+        future = self.converter_param_client.call_async(request)
+        deadline = time.monotonic() + timeout_sec
+        while rclpy.ok() and not future.done() and time.monotonic() < deadline:
+            rclpy.spin_once(self, timeout_sec=0.05)
+
+        if not future.done():
+            return False, "设置 Octomap 转换参数超时。"
+        response = future.result()
+        if response is None:
+            return False, "设置 Octomap 转换参数失败，服务没有返回结果。"
+        failed = [result.reason or "unknown" for result in response.results if not result.successful]
+        if failed:
+            return False, "设置 Octomap 转换参数失败：" + "; ".join(failed)
+        return True, "Octomap 转换参数已更新。"
+
+    @staticmethod
+    def _double_parameter(name: str, value: float) -> Parameter:
+        parameter = Parameter()
+        parameter.name = name
+        parameter.value = ParameterValue(
+            type=ParameterType.PARAMETER_DOUBLE, double_value=float(value)
+        )
+        return parameter
+
+    @staticmethod
+    def _int_parameter(name: str, value: int) -> Parameter:
+        parameter = Parameter()
+        parameter.name = name
+        parameter.value = ParameterValue(
+            type=ParameterType.PARAMETER_INTEGER, integer_value=int(value)
+        )
+        return parameter
 
     def publish_point(self, topic: str, frame_id: str, xyz: tuple[float, float, float]) -> None:
         msg = PointStamped()
@@ -239,7 +299,7 @@ class PcdMapImportWindow(QWidget):
 
     def __init__(self) -> None:
         super().__init__()
-        self._default_root = Path("/home/robot/maps")
+        self._default_root = Path.home() / "maps"
         self._selected_pcd: Path | None = None
         self._preview_points: np.ndarray | None = None
         self._source_cloud: o3d.geometry.PointCloud | None = None
@@ -290,10 +350,9 @@ class PcdMapImportWindow(QWidget):
 
         self.resolution_spin = QDoubleSpinBox()
         self.resolution_spin.setDecimals(3)
-        self.resolution_spin.setRange(0.01, 2.0)
+        self.resolution_spin.setRange(0.01, 5.0)
         self.resolution_spin.setSingleStep(0.05)
-        self.resolution_spin.setValue(0.2)
-        self.resolution_spin.setEnabled(False)
+        self.resolution_spin.setValue(0.5)
         import_form.addRow("Octomap分辨率", self.resolution_spin)
 
         self.downsample_spin = QDoubleSpinBox()
@@ -301,7 +360,23 @@ class PcdMapImportWindow(QWidget):
         self.downsample_spin.setRange(0.0, 2.0)
         self.downsample_spin.setSingleStep(0.05)
         self.downsample_spin.setValue(0.1)
-        import_form.addRow("降采样体素(m)", self.downsample_spin)
+        import_form.addRow("预处理降采样(m)", self.downsample_spin)
+
+        self.min_points_spin = QSpinBox()
+        self.min_points_spin.setRange(1, 100)
+        self.min_points_spin.setSingleStep(1)
+        self.min_points_spin.setValue(1)
+        import_form.addRow("每体素最少点数", self.min_points_spin)
+
+        self.min_cluster_spin = QSpinBox()
+        self.min_cluster_spin.setRange(1, 1000000)
+        self.min_cluster_spin.setSingleStep(1)
+        self.min_cluster_spin.setValue(1)
+        import_form.addRow("最小连通体素数", self.min_cluster_spin)
+
+        recommend_btn = QPushButton("推荐转换参数")
+        recommend_btn.clicked.connect(self._recommend_octomap_params)
+        import_form.addRow("", recommend_btn)
 
         filter_statistical_btn = QPushButton("统计离群点滤波")
         filter_statistical_btn.clicked.connect(self._apply_statistical_filter)
@@ -367,18 +442,24 @@ class PcdMapImportWindow(QWidget):
         pcd_view_group = QGroupBox("PCD 点云预览")
         pcd_view_layout = QVBoxLayout()
         erase_row = QHBoxLayout()
-        self.erase_checkbox = QCheckBox("启用抹除方块")
+        self.erase_checkbox = QCheckBox("启用选区方块")
         self.erase_checkbox.toggled.connect(self._toggle_erase_mode)
         erase_row.addWidget(self.erase_checkbox)
         erase_row.addWidget(QLabel("方块边长(m)"))
         self.erase_size_spin = QDoubleSpinBox()
         self.erase_size_spin.setDecimals(2)
-        self.erase_size_spin.setRange(0.05, 20.0)
-        self.erase_size_spin.setSingleStep(0.05)
-        self.erase_size_spin.setValue(0.5)
+        self.erase_size_spin.setRange(0.05, 500.0)
+        self.erase_size_spin.setSingleStep(0.50)
+        self.erase_size_spin.setValue(5.0)
         self.erase_size_spin.valueChanged.connect(self._on_erase_size_changed)
         erase_row.addWidget(self.erase_size_spin)
-        erase_hint = QLabel("[X轴移动：W/S] [Y轴移动：A/D] [Z轴移动：Q/E] 空格:抹除")
+        erase_btn = QPushButton("抹除框内点云")
+        erase_btn.clicked.connect(self._erase_points_in_cursor)
+        erase_row.addWidget(erase_btn)
+        crop_btn = QPushButton("仅保留框内点云")
+        crop_btn.clicked.connect(self._crop_points_to_cursor)
+        erase_row.addWidget(crop_btn)
+        erase_hint = QLabel("W/S: X轴  A/D: Y轴  Q/E: Z轴  Space: 抹除框内")
         erase_hint.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         erase_row.addWidget(erase_hint)
         erase_row.addStretch(1)
@@ -468,7 +549,7 @@ class PcdMapImportWindow(QWidget):
             self._erase_position = self._erase_position + move_map[key] * step
             self._update_erase_cursor()
             self.status_label.setText(
-                f"抹除方块位置：[{self._erase_position[0]:.2f}, {self._erase_position[1]:.2f}, {self._erase_position[2]:.2f}]"
+                f"选区方块位置：[{self._erase_position[0]:.2f}, {self._erase_position[1]:.2f}, {self._erase_position[2]:.2f}]"
             )
             return True
         if key == Qt.Key_Space:
@@ -641,10 +722,23 @@ class PcdMapImportWindow(QWidget):
         except Exception as exc:
             QMessageBox.critical(self, "Octomap 转换", f"写入处理后点云失败：{exc}")
             return
+        resolution = float(self.resolution_spin.value())
+        min_points = int(self.min_points_spin.value())
+        min_cluster = int(self.min_cluster_spin.value())
+        ok, message = self._ros_node.set_converter_params(
+            resolution=resolution,
+            voxel_downsample_m=0.0,
+            min_points_per_voxel=min_points,
+            min_cluster_voxels=min_cluster,
+        )
+        if not ok:
+            QMessageBox.critical(self, "Octomap 转换", message)
+            return
         self._ros_node.publish_pcd_file(str(convert_path))
         self._has_converted_map = True
         self.status_label.setText(
-            f"已发送转换请求：{convert_path.name}。"
+            f"已发送转换请求：{convert_path.name}。分辨率 {resolution:.3f}m，"
+            f"每体素最少点数 {min_points}，最小连通体素数 {min_cluster}。"
             " 右侧窗口会在 Octomap 和各种栅格层生成后刷新。"
         )
 
@@ -730,7 +824,7 @@ class PcdMapImportWindow(QWidget):
             self.activateWindow()
             self.pcd_vtk_widget.setFocus()
             self.status_label.setText(
-                "PCD 点云抹除已开启。使用 W/S 移动 X，A/D 移动 Y，Q/E 移动 Z，空格抹除当前方块内点云。"
+                "PCD 点云选区方块已开启。使用 W/S 移动 X，A/D 移动 Y，Q/E 移动 Z；可点击按钮执行抹除或仅保留。"
             )
         else:
             self._remove_erase_cursor()
@@ -770,6 +864,14 @@ class PcdMapImportWindow(QWidget):
         cloud = self._require_working_cloud()
         if cloud is None:
             return
+
+        if not self.erase_checkbox.isChecked():
+            self.erase_checkbox.setChecked(True)
+            self.status_label.setText(
+                "已显示选区方块。请用 W/S、A/D、Q/E 调整位置，设置方块边长后再次点击“抹除框内点云”。"
+            )
+            return
+
         points = np.asarray(cloud.points, dtype=np.float32)
         if points.size == 0:
             return
@@ -780,7 +882,7 @@ class PcdMapImportWindow(QWidget):
         inside = np.all((points >= lower) & (points <= upper), axis=1)
         removed_count = int(np.count_nonzero(inside))
         if removed_count == 0:
-            self.status_label.setText("当前抹除方块内没有点云。")
+            self.status_label.setText("当前选区方块内没有点云。")
             return
 
         keep_indices = np.where(~inside)[0]
@@ -796,6 +898,44 @@ class PcdMapImportWindow(QWidget):
             self._update_erase_cursor()
         self.status_label.setText(
             f"已抹除 {removed_count} 个点。剩余 {len(self._working_cloud.points)} 个点。"
+        )
+
+    def _crop_points_to_cursor(self) -> None:
+        cloud = self._require_working_cloud()
+        if cloud is None:
+            return
+
+        if not self.erase_checkbox.isChecked():
+            self.erase_checkbox.setChecked(True)
+            self.status_label.setText(
+                "已显示选区方块。请用 W/S、A/D、Q/E 调整位置，设置方块边长后再次点击“仅保留框内点云”。"
+            )
+            return
+
+        points = np.asarray(cloud.points, dtype=np.float32)
+        if points.size == 0:
+            return
+
+        half_size = float(self.erase_size_spin.value()) * 0.5
+        lower = self._erase_position - half_size
+        upper = self._erase_position + half_size
+        inside = np.all((points >= lower) & (points <= upper), axis=1)
+        keep_indices = np.where(inside)[0]
+        kept_count = int(keep_indices.size)
+        if kept_count == 0:
+            QMessageBox.warning(self, "PCD 点云裁剪", "当前选区方块内没有点云，已取消。")
+            return
+
+        original_count = int(points.shape[0])
+        if kept_count == original_count:
+            self.status_label.setText("当前选区方块已包含全部点云，未进行裁剪。")
+            return
+
+        cropped_cloud = cloud.select_by_index(keep_indices.tolist())
+        removed_count = original_count - kept_count
+        self._apply_processed_cloud(cropped_cloud, "仅保留框内点云")
+        self.status_label.setText(
+            f"仅保留框内点云完成。保留 {kept_count} 个点，移除 {removed_count} 个点。"
         )
 
     def _require_working_cloud(self) -> o3d.geometry.PointCloud | None:
@@ -820,6 +960,152 @@ class PcdMapImportWindow(QWidget):
         if self.erase_checkbox.isChecked():
             self._initialize_erase_position()
             self._update_erase_cursor()
+
+    def _recommend_octomap_params(self) -> None:
+        cloud = self._require_working_cloud()
+        if cloud is None:
+            return
+
+        points = np.asarray(cloud.points, dtype=np.float32)
+        point_count = int(points.shape[0])
+        if point_count < 2:
+            QMessageBox.warning(self, "推荐转换参数", "点数太少，无法估计推荐参数。")
+            return
+
+        try:
+            median_nn, p75_nn = self._estimate_point_spacing(cloud)
+        except Exception as exc:
+            QMessageBox.critical(self, "推荐转换参数", f"估计点间距失败：{exc}")
+            return
+
+        resolution, estimated_voxels = self._choose_octomap_resolution(points, median_nn)
+        self.resolution_spin.setValue(resolution)
+        self.min_points_spin.setValue(1)
+        self.min_cluster_spin.setValue(1)
+
+        extent = np.ptp(points, axis=0)
+        self.status_label.setText(
+            "已推荐转换参数："
+            f"Octomap 分辨率 {resolution:.3f}m，每体素最少点数 1，最小连通体素数 1。"
+            f"当前点云 {point_count} 点，范围 "
+            f"{extent[0]:.1f} x {extent[1]:.1f} x {extent[2]:.1f}m，"
+            f"估计最近邻中位数 {median_nn:.3f}m，P75 {p75_nn:.3f}m，"
+            f"按该分辨率约 {estimated_voxels} 个 occupied voxels。"
+        )
+
+    def _estimate_point_spacing(self, cloud: o3d.geometry.PointCloud) -> tuple[float, float]:
+        points = np.asarray(cloud.points, dtype=np.float32)
+        if points.shape[0] < 2:
+            raise RuntimeError("point cloud has fewer than 2 points")
+
+        metric_cloud = cloud
+        metric_points = points
+        max_tree_points = 200000
+        if points.shape[0] > max_tree_points:
+            rng = np.random.default_rng(42)
+            indices = rng.choice(points.shape[0], max_tree_points, replace=False)
+            metric_cloud = cloud.select_by_index(indices.tolist())
+            metric_points = np.asarray(metric_cloud.points, dtype=np.float32)
+
+        kdtree = o3d.geometry.KDTreeFlann(metric_cloud)
+        sample_count = min(5000, metric_points.shape[0])
+        sample_indices = np.linspace(0, metric_points.shape[0] - 1, sample_count, dtype=np.int64)
+        distances = []
+        for index in sample_indices:
+            _, _, squared_distances = kdtree.search_knn_vector_3d(metric_points[index], 2)
+            if len(squared_distances) < 2:
+                continue
+            distance = float(np.sqrt(squared_distances[1]))
+            if distance > 1.0e-6:
+                distances.append(distance)
+
+        if not distances:
+            fallback = max(float(self.downsample_spin.value()) * 2.0, 0.2)
+            return fallback, fallback
+
+        spacing = np.asarray(distances, dtype=np.float32)
+        return float(np.median(spacing)), float(np.percentile(spacing, 75))
+
+    def _choose_octomap_resolution(
+        self, points: np.ndarray, median_nn: float
+    ) -> tuple[float, int]:
+        downsample = float(self.downsample_spin.value())
+        density_floor = max(0.05, median_nn * 1.5)
+        if downsample > 0.0:
+            density_floor = max(density_floor, downsample * 2.0)
+
+        base_candidates = [
+            0.05,
+            0.075,
+            0.10,
+            0.15,
+            0.20,
+            0.25,
+            0.30,
+            0.40,
+            0.50,
+            0.75,
+            1.00,
+            1.50,
+            2.00,
+            3.00,
+            5.00,
+        ]
+        rounded_floor = self._round_resolution(density_floor)
+        candidates = sorted({value for value in base_candidates + [rounded_floor] if value >= density_floor})
+        if not candidates:
+            candidates = [5.0]
+
+        point_count = int(points.shape[0])
+        target_voxels = self._target_voxel_count(point_count)
+        max_sparse_ratio = 0.75
+        best_resolution = candidates[-1]
+        best_voxels = self._estimate_voxel_count(points, best_resolution)
+
+        for resolution in candidates:
+            estimated_voxels = self._estimate_voxel_count(points, resolution)
+            if estimated_voxels <= target_voxels and estimated_voxels <= point_count * max_sparse_ratio:
+                return resolution, estimated_voxels
+            if estimated_voxels <= target_voxels and point_count <= 10000:
+                return resolution, estimated_voxels
+
+        return best_resolution, best_voxels
+
+    @staticmethod
+    def _round_resolution(value: float) -> float:
+        if value <= 0.1:
+            step = 0.01
+        elif value <= 1.0:
+            step = 0.05
+        else:
+            step = 0.10
+        return min(5.0, max(0.01, round(value / step) * step))
+
+    @staticmethod
+    def _target_voxel_count(point_count: int) -> int:
+        if point_count <= 20000:
+            return max(3000, int(point_count * 0.8))
+        if point_count <= 150000:
+            return 80000
+        return 120000
+
+    @staticmethod
+    def _estimate_voxel_count(points: np.ndarray, resolution: float) -> int:
+        point_count = int(points.shape[0])
+        sample_points = points
+        sample_limit = 200000
+        if point_count > sample_limit:
+            rng = np.random.default_rng(43)
+            indices = rng.choice(point_count, sample_limit, replace=False)
+            sample_points = points[indices]
+
+        min_bound = np.min(sample_points, axis=0)
+        keys = np.floor((sample_points - min_bound) / resolution).astype(np.int64)
+        unique_count = int(np.unique(keys, axis=0).shape[0])
+        if point_count <= sample_limit:
+            return unique_count
+        scaled_count = int(unique_count * (point_count / float(sample_points.shape[0])))
+        return min(point_count, max(unique_count, scaled_count))
 
     def _apply_statistical_filter(self) -> None:
         cloud = self._require_working_cloud()

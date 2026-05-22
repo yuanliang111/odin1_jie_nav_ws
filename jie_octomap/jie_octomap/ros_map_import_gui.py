@@ -35,9 +35,12 @@ from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from visualization_msgs.msg import Marker
-from vtkmodules.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
 import vtk
 from vtk.util import numpy_support
+try:
+    from vtkmodules.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
+except ModuleNotFoundError:
+    from vtk.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
 
 
 def yaw_to_quaternion(yaw: float) -> Quaternion:

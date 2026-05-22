@@ -25,6 +25,7 @@ const setNavigateBtn = document.getElementById("set-navigate-btn");
 const setStartBtn = document.getElementById("set-start-btn");
 const setGoalBtn = document.getElementById("set-goal-btn");
 const stopNavigationBtn = document.getElementById("stop-navigation-btn");
+const resetViewBtn = document.getElementById("reset-view-btn");
 const joystickPad = document.getElementById("motion-joystick");
 const joystickKnob = document.getElementById("motion-joystick-knob");
 const manualRotationSlider = document.getElementById("manual-rotation-slider");
@@ -195,6 +196,8 @@ let joystickRepeatTimer = null;
 let joystickCurrentLinearX = 0;
 let joystickCurrentLinearY = 0;
 let joystickCurrentAngularZ = 0;
+let mapHasBeenAutoFramed = false;
+let latestOccupiedBounds = null;
 const tfState = new Map();
 const joystickMaxLinearX = 0.42;
 const joystickMaxLinearY = 0.42;
@@ -260,6 +263,56 @@ function disposeObject(object) {
   } else if (object.material) {
     object.material.dispose();
   }
+}
+
+function computePointBounds(points) {
+  if (!points || points.length === 0) {
+    return null;
+  }
+  const min = new THREE.Vector3(Infinity, Infinity, Infinity);
+  const max = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
+  for (const point of points) {
+    min.x = Math.min(min.x, point.x);
+    min.y = Math.min(min.y, point.y);
+    min.z = Math.min(min.z, point.z);
+    max.x = Math.max(max.x, point.x);
+    max.y = Math.max(max.y, point.y);
+    max.z = Math.max(max.z, point.z);
+  }
+  if (!Number.isFinite(min.x) || !Number.isFinite(max.x)) {
+    return null;
+  }
+  return { min, max };
+}
+
+function frameCameraToBounds(bounds) {
+  if (!bounds) {
+    return;
+  }
+  const center = bounds.min.clone().add(bounds.max).multiplyScalar(0.5);
+  const size = bounds.max.clone().sub(bounds.min);
+  const maxDim = Math.max(size.x, size.y, size.z, voxelSize * 8.0, 1.0);
+  const fovRad = THREE.MathUtils.degToRad(camera.fov);
+  const distance = Math.max(maxDim * 1.35, (maxDim * 0.5) / Math.tan(fovRad * 0.5));
+  const direction = new THREE.Vector3(1.0, -1.25, 0.8).normalize();
+  const position = center.clone().add(direction.multiplyScalar(distance));
+
+  camera.position.copy(position);
+  controls.target.copy(center);
+  controls.minDistance = Math.max(voxelSize * 2.0, distance * 0.02);
+  controls.maxDistance = Math.max(distance * 8.0, maxDim * 8.0);
+  camera.near = Math.max(0.01, distance / 10000.0);
+  camera.far = Math.max(1000.0, distance * 10.0, maxDim * 20.0);
+  camera.updateProjectionMatrix();
+  controls.update();
+}
+
+function resetMapView() {
+  if (!latestOccupiedBounds) {
+    setMapStatus("尚未收到可用于重置视角的占据栅格。");
+    return;
+  }
+  frameCameraToBounds(latestOccupiedBounds);
 }
 
 function makeVoxelGroup(marker, color, opacity = 1.0, visualScale = 1.0) {
@@ -331,6 +384,11 @@ function setOccupiedPoints(marker) {
     const cy = sumY / marker.points.length;
     const cz = sumZ / marker.points.length;
     controls.target.set(cx, cy, cz);
+    latestOccupiedBounds = computePointBounds(marker.points);
+    if (!mapHasBeenAutoFramed) {
+      frameCameraToBounds(latestOccupiedBounds);
+      mapHasBeenAutoFramed = true;
+    }
   }
 
   setMapStatus(`${marker.points.length} 个占据栅格，分辨率 ${voxelSize.toFixed(2)} 米`);
@@ -1523,6 +1581,7 @@ toggleOccupied.addEventListener("change", refreshLayerVisibility);
 toggleTraversable.addEventListener("change", refreshLayerVisibility);
 togglePreblocked.addEventListener("change", refreshLayerVisibility);
 toggleRisk.addEventListener("change", refreshLayerVisibility);
+resetViewBtn.addEventListener("click", resetMapView);
 
 canvas.addEventListener("pointerdown", (event) => {
   if (!placementMode) {

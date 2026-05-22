@@ -37,9 +37,12 @@ from sensor_msgs.msg import PointCloud2
 from sensor_msgs_py import point_cloud2
 from std_msgs.msg import String
 from visualization_msgs.msg import Marker
-from vtkmodules.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
 import vtk
 from vtk.util import numpy_support
+try:
+    from vtkmodules.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
+except ModuleNotFoundError:
+    from vtk.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
 
 
 class SaveMapClient(Node):

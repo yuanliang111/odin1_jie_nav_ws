@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cmath>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <unordered_set>
 

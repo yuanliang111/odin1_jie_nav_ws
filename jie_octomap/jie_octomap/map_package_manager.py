@@ -255,20 +255,30 @@ class MapPackageManager(Node):
                 response.success = False
                 response.message = f"package path already exists: {package_dir}"
                 return response
-        package_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            package_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            response.success = False
+            response.message = f"failed to create package directory {package_dir}: {exc}"
+            return response
 
         octomap_file = package_dir / "octomap_msg.npz"
         layers_file = package_dir / "layers.npz"
         meta_file = package_dir / "meta.yaml"
 
-        np.savez_compressed(
-            octomap_file,
-            binary=np.array([self._latest_octomap.binary], dtype=np.bool_),
-            octomap_id=np.array([self._latest_octomap.id]),
-            resolution=np.array([self._latest_octomap.resolution], dtype=np.float64),
-            frame_id=np.array([self._latest_octomap.header.frame_id]),
-            data=np.array(self._latest_octomap.data, dtype=np.int8),
-        )
+        try:
+            np.savez_compressed(
+                octomap_file,
+                binary=np.array([self._latest_octomap.binary], dtype=np.bool_),
+                octomap_id=np.array([self._latest_octomap.id]),
+                resolution=np.array([self._latest_octomap.resolution], dtype=np.float64),
+                frame_id=np.array([self._latest_octomap.header.frame_id]),
+                data=np.array(self._latest_octomap.data, dtype=np.int8),
+            )
+        except (OSError, ValueError, RuntimeError) as exc:
+            response.success = False
+            response.message = f"failed to write {octomap_file}: {exc}"
+            return response
 
         preblocked_points = self._marker_points_to_numpy(self._latest_preblocked)
         traversable_points = self._marker_points_to_numpy(self._latest_traversable)
@@ -283,32 +293,41 @@ class MapPackageManager(Node):
             [[row[0], row[1], row[2], row[3]] for row in risk_records],
             dtype=np.float32,
         )
-        np.savez_compressed(
-            layers_file,
-            preblocked_points=preblocked_points,
-            preblocked_scale=np.array(
-                [
-                    self._latest_preblocked.scale.x,
-                    self._latest_preblocked.scale.y,
-                    self._latest_preblocked.scale.z,
-                ],
-                dtype=np.float64,
-            ),
-            preblocked_frame_id=np.array([self._latest_preblocked.header.frame_id]),
-            traversable_points=traversable_points,
-            traversable_scale=np.array(
-                [
-                    self._latest_traversable.scale.x,
-                    self._latest_traversable.scale.y,
-                    self._latest_traversable.scale.z,
-                ],
-                dtype=np.float64,
-            ),
-            traversable_frame_id=np.array([self._latest_traversable.header.frame_id]),
-            risk_points=risk_points[:, :3] if risk_points.size else np.empty((0, 3), dtype=np.float32),
-            risk_intensity=risk_points[:, 3] if risk_points.size else np.empty((0,), dtype=np.float32),
-            risk_frame_id=np.array([self._latest_risk_cost.header.frame_id]),
-        )
+        try:
+            np.savez_compressed(
+                layers_file,
+                preblocked_points=preblocked_points,
+                preblocked_scale=np.array(
+                    [
+                        self._latest_preblocked.scale.x,
+                        self._latest_preblocked.scale.y,
+                        self._latest_preblocked.scale.z,
+                    ],
+                    dtype=np.float64,
+                ),
+                preblocked_frame_id=np.array([self._latest_preblocked.header.frame_id]),
+                traversable_points=traversable_points,
+                traversable_scale=np.array(
+                    [
+                        self._latest_traversable.scale.x,
+                        self._latest_traversable.scale.y,
+                        self._latest_traversable.scale.z,
+                    ],
+                    dtype=np.float64,
+                ),
+                traversable_frame_id=np.array([self._latest_traversable.header.frame_id]),
+                risk_points=risk_points[:, :3]
+                if risk_points.size
+                else np.empty((0, 3), dtype=np.float32),
+                risk_intensity=risk_points[:, 3]
+                if risk_points.size
+                else np.empty((0,), dtype=np.float32),
+                risk_frame_id=np.array([self._latest_risk_cost.header.frame_id]),
+            )
+        except (OSError, ValueError, RuntimeError) as exc:
+            response.success = False
+            response.message = f"failed to write {layers_file}: {exc}"
+            return response
 
         meta_yaml = {
             "map_id": meta.map_id,
@@ -343,8 +362,13 @@ class MapPackageManager(Node):
             },
         }
 
-        with meta_file.open("w", encoding="utf-8") as f:
-            yaml.safe_dump(meta_yaml, f, sort_keys=False, allow_unicode=True)
+        try:
+            with meta_file.open("w", encoding="utf-8") as f:
+                yaml.safe_dump(meta_yaml, f, sort_keys=False, allow_unicode=True)
+        except (OSError, yaml.YAMLError) as exc:
+            response.success = False
+            response.message = f"failed to write {meta_file}: {exc}"
+            return response
 
         response.success = True
         response.message = "map package saved"

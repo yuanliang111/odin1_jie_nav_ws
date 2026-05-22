@@ -2,6 +2,7 @@
 #include <chrono>
 #include <memory>
 #include <mutex>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -268,7 +269,8 @@ private:
 int main(int argc, char ** argv)
 {
   rclcpp::InitOptions init_options;
-  rclcpp::init(argc, argv, init_options, rclcpp::SignalHandlerOptions::None);
+  rclcpp::init(argc, argv, init_options);
+  rclcpp::uninstall_signal_handlers();
   auto node = std::make_shared<OctomapOpen3DViewerNode>();
 
   open3d::visualization::Visualizer vis;

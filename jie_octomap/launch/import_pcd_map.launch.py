@@ -1,8 +1,16 @@
 from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
+    resolution = LaunchConfiguration("resolution")
+    voxel_downsample_m = LaunchConfiguration("voxel_downsample_m")
+    min_points_per_voxel = LaunchConfiguration("min_points_per_voxel")
+    min_cluster_voxels = LaunchConfiguration("min_cluster_voxels")
+
     pcd_to_octomap_node = Node(
         package="jie_octomap",
         executable="pcd_to_octomap_node",
@@ -13,10 +21,12 @@ def generate_launch_description():
                 "pcd_file_cmd_topic": "/pcd_file_cmd",
                 "octomap_topic": "/octomap",
                 "frame_id": "map",
-                "resolution": 0.2,
-                "voxel_downsample_m": 0.1,
-                "min_points_per_voxel": 2,
-                "min_cluster_voxels": 2,
+                "resolution": ParameterValue(resolution, value_type=float),
+                "voxel_downsample_m": ParameterValue(voxel_downsample_m, value_type=float),
+                "min_points_per_voxel": ParameterValue(
+                    min_points_per_voxel, value_type=int
+                ),
+                "min_cluster_voxels": ParameterValue(min_cluster_voxels, value_type=int),
             }
         ],
     )
@@ -83,6 +93,29 @@ def generate_launch_description():
 
     return LaunchDescription(
         [
+            DeclareLaunchArgument(
+                "resolution",
+                default_value="0.5",
+                description="OctoMap resolution in meters for imported PCD maps.",
+            ),
+            DeclareLaunchArgument(
+                "voxel_downsample_m",
+                default_value="0.0",
+                description=(
+                    "Additional downsample size inside pcd_to_octomap_node. "
+                    "The GUI already writes a preprocessed temporary PCD, so 0.0 avoids double downsampling."
+                ),
+            ),
+            DeclareLaunchArgument(
+                "min_points_per_voxel",
+                default_value="1",
+                description="Minimum source points required to keep an occupied voxel.",
+            ),
+            DeclareLaunchArgument(
+                "min_cluster_voxels",
+                default_value="1",
+                description="Minimum connected occupied voxels required to keep a cluster.",
+            ),
             pcd_to_octomap_node,
             planner_node,
             occupied_marker_node,

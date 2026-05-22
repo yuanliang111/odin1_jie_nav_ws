@@ -1,6 +1,7 @@
 #include <cmath>
 #include <memory>
 #include <random>
+#include <sstream>
 #include <string>
 
 #include "geometry_msgs/msg/point.hpp"
