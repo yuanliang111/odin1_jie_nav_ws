@@ -415,3 +415,12 @@ ros2 launch jie_octomap odin1_loc.launch.py
 </p>
 
 淘宝链接：[《机器人操作系统（ROS2）入门与实践》](https://world.taobao.com/item/820988259242.htm)
+
+## 关注公众号
+
+欢迎关注公众号，后续会继续带来更多有意思的机器人、ROS 2 和具身智能相关开源项目。
+
+<p align="center">
+  <img src="./media/AJQR.jpg" alt="公众号二维码" width="360">
+</p>
+

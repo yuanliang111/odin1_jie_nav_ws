@@ -415,3 +415,11 @@ Robot Operating System ROS2: Introduction and Practice
 </p>
 
 Taobao link: [Robot Operating System ROS2: Introduction and Practice](https://world.taobao.com/item/820988259242.htm)
+
+## Follow The WeChat Official Account
+
+Scan the QR code to follow the WeChat official account. More robotics, ROS 2, and embodied intelligence open-source projects will be shared later.
+
+<p align="center">
+  <img src="./media/AJQR.jpg" alt="WeChat official account QR code" width="360">
+</p>
