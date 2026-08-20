@@ -4,7 +4,7 @@
 set -euo pipefail
 
 DOG_USER="${DOG_USER:-firefly}"
-DOG_IP="${DOG_IP:-192.168.0.111}"
+DOG_IP="${DOG_IP:-192.168.0.109}"
 LOCAL_WS="${LOCAL_WS:-/home/robot/project/odin1_jie_nav_ws}"
 REMOTE_WS="${REMOTE_WS:-/home/firefly/odin1_jie_nav_ws}"
 
