@@ -19,6 +19,8 @@ Makefile
 *.o
 *.so
 *.a
+!src/odin_ros_driver/lib/liblydHostApi_arm.a
+!src/odin_ros_driver/lib/liblydHostApi_amd.a
 
 # ROS bags, maps, and large runtime data
 *.bag
