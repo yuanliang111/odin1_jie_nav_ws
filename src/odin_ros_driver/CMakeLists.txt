@@ -122,7 +122,8 @@ include_directories(
 # Shared library list
 set(COMMON_LIBS
     ${OpenCV_LIBS}
-    ${PCL_LIBRARIES}
+    ${PCL_COMMON_LIBRARIES}
+    ${PCL_IO_LIBRARIES}
     ${yaml-cpp_LIBRARIES}
     ${OPENSSL_LIBRARIES}
     ${LIBUSB_LIBRARIES}
