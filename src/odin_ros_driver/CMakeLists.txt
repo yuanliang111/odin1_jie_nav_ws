@@ -103,7 +103,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2")
 find_package(PkgConfig REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(Eigen3 REQUIRED)
-find_package(PCL REQUIRED COMPONENTS common io)
+find_package(PCL REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(OpenSSL REQUIRED)
 pkg_check_modules(LIBUSB REQUIRED libusb-1.0)
@@ -122,8 +122,7 @@ include_directories(
 # Shared library list
 set(COMMON_LIBS
     ${OpenCV_LIBS}
-    ${PCL_COMMON_LIBRARIES}
-    ${PCL_IO_LIBRARIES}
+    ${PCL_LIBRARIES}
     ${yaml-cpp_LIBRARIES}
     ${OPENSSL_LIBRARIES}
     ${LIBUSB_LIBRARIES}
