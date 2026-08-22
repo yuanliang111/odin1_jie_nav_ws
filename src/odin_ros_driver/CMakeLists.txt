@@ -473,7 +473,7 @@ endif()
 # ARM platform specific link options
 if(TARGET_PLATFORM STREQUAL "arm")
     set_target_properties(host_sdk_sample PROPERTIES
-        LINK_FLAGS "-Wl,--no-as-needed -Wl,--rpath=${LIB_DIR}"
+        LINK_FLAGS "-Wl,--rpath=${LIB_DIR}"
     )
     message(STATUS "Adding ARM-specific link options and RPATH")
 endif()
