@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cmath>
 #include <functional>
 #include <iomanip>
@@ -40,21 +41,25 @@ private:
       }
 
       const double distance = std::hypot(target.x, target.y);
-      // Phase 1 assumes a zero reference heading. No control command is generated.
       const double yaw_error = std::atan2(target.y, target.x);
-      publish_debug("TRACKING", target.x, target.y, distance, yaw_error);
+      const double desired_forward_cmd = std::min(0.5, distance);
+      const double desired_yaw_cmd = std::clamp(yaw_error, -1.0, 1.0);
+      publish_debug(
+        "TRACKING", target.x, target.y, distance, yaw_error, desired_forward_cmd, desired_yaw_cmd);
       RCLCPP_INFO(
-        get_logger(), "TRACKING target=(%.3f, %.3f), distance=%.3f, yaw_error=%.3f",
-        target.x, target.y, distance, yaw_error);
+        get_logger(),
+        "TRACKING target=(%.3f, %.3f), distance=%.3f, yaw_error=%.3f, desired=(%.3f, %.3f)",
+        target.x, target.y, distance, yaw_error, desired_forward_cmd, desired_yaw_cmd);
       return;
     }
 
-    publish_debug("NO_VALID_TARGET", 0.0, 0.0, 0.0, 0.0);
+    publish_debug("NO_VALID_TARGET", 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
     RCLCPP_WARN(get_logger(), "Received planned_path without a finite XY target");
   }
 
   void publish_debug(
-    const std::string & state, double target_x, double target_y, double distance, double yaw_error)
+    const std::string & state, double target_x, double target_y, double distance, double yaw_error,
+    double desired_forward_cmd, double desired_yaw_cmd)
   {
     // These values are deliberately fixed at zero in the non-actuating validation phase.
     constexpr double forward_cmd = 0.0;
@@ -67,6 +72,8 @@ private:
          << ",\"target_y\":" << target_y
          << ",\"distance\":" << distance
          << ",\"yaw_error\":" << yaw_error
+         << ",\"desired_forward_cmd\":" << desired_forward_cmd
+         << ",\"desired_yaw_cmd\":" << desired_yaw_cmd
          << ",\"forward_cmd\":" << forward_cmd
          << ",\"yaw_cmd\":" << yaw_cmd
          << "}";
