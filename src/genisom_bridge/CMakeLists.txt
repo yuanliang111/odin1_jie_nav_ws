@@ -34,7 +34,7 @@ set_target_properties(genisom_sdk PROPERTIES
 
 add_executable(genisom_state_node src/genisom_state_node.cpp)
 target_compile_features(genisom_state_node PUBLIC cxx_std_20)
-ament_target_dependencies(genisom_state_node rclcpp std_msgs)
+ament_target_dependencies(genisom_state_node PUBLIC rclcpp std_msgs)
 target_link_libraries(genisom_state_node PRIVATE genisom_sdk Threads::Threads)
 
 install(TARGETS genisom_state_node
