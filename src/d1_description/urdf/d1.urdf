@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<robot name="d1_dog">
+
+<!-- 机器人的身体 -->
+<link name="base_link">
+  <visual>
+    <origin xyz="0 0 0.15" rpy="0 0 1.57"/>
+    <geometry>
+      <mesh filename="package://d1_description/meshes/d1/d1.dae" scale="0.5 0.5 0.5"/>
+    </geometry>
+  </visual>
+</link>
+
+<!-- Lidar -->
+<link name = "laser">
+  <visual>
+   <geometry>
+      <cylinder length="0.02" radius="0.03"/>
+   </geometry>
+   <origin rpy = "0 0 0" xyz = "0 0 0"/>
+  </visual>
+</link>
+<joint name="laser_joint" type="fixed">
+    <origin rpy="0 0 3.1415926" xyz="0.15 0 0.25"  /> <!--pos-->
+    <parent link="base_link" />
+    <child link="laser" />
+</joint>
+
+</robot>

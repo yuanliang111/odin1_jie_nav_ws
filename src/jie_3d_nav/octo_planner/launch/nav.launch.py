@@ -153,6 +153,11 @@ def generate_launch_description():
         default_value="true",
         description="Launch d1_controller for path execution",
     )
+    launch_d1_core_arg = DeclareLaunchArgument(
+        "launch_d1_core",
+        default_value="true",
+        description="Launch d1_core hardware interface node",
+    )
     launch_web_arg = DeclareLaunchArgument(
         "launch_web",
         default_value="true",
@@ -220,6 +225,7 @@ def generate_launch_description():
         executable="d1_core",
         name="d1_core_node",
         output="screen",
+        condition=IfCondition(LaunchConfiguration("launch_d1_core")),
         parameters=[
             d1_params_file,
             {
@@ -454,6 +460,7 @@ def generate_launch_description():
             use_static_odom_to_base_arg,
             launch_planner_arg,
             launch_controller_arg,
+            launch_d1_core_arg,
             launch_web_arg,
             launch_rosbridge_arg,
             web_http_port_arg,

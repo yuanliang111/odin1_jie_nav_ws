@@ -1,0 +1,5 @@
+d1_core_node:
+  ros__parameters:
+    client_ip: "192.168.234.10" # 本机 IP，如果是远程连接，需要改为具体的网卡IP
+    communication_port: 43988   # SDK 端口
+    robot_ip: "192.168.234.1"   # 机器狗 IP 
