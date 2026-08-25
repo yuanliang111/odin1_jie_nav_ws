@@ -1,0 +1,3 @@
+register_keys:
+  custom_map_mode: 2
+  relocalization_map_abs_path: "/home/firefly/odin1_jie_nav_data/scene_20260824_150211/02_mindcloud/map_merged.bin"
