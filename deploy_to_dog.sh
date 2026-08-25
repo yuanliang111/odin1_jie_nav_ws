@@ -30,6 +30,12 @@ if [[ ! -d "$LOCAL_WS/src" ]]; then
   exit 1
 fi
 
+LOCAL_THIRD_PARTY="$LOCAL_WS/third_party"
+HAS_THIRD_PARTY=0
+if [[ -d "$LOCAL_THIRD_PARTY" ]]; then
+  HAS_THIRD_PARTY=1
+fi
+
 for required_command in git ssh rsync; do
   if ! command -v "$required_command" >/dev/null 2>&1; then
     printf 'ERROR: required local command is unavailable: %s\n' "$required_command" >&2
@@ -106,6 +112,18 @@ else
   printf '%s\n' 'DRY_RUN=1: remote workspace and backup directories will not be created.'
 fi
 
+if [[ "$HAS_THIRD_PARTY" == '1' ]]; then
+  if [[ "$DRY_RUN" == '0' ]]; then
+    printf -v remote_third_party_mkdir_command 'bash -s -- %q' "$REMOTE_WS/third_party"
+    ssh "${SSH_OPTIONS[@]}" "$REMOTE_TARGET" "$remote_third_party_mkdir_command" <<'REMOTE_THIRD_PARTY_MKDIR'
+set -euo pipefail
+mkdir -p -- "$1"
+REMOTE_THIRD_PARTY_MKDIR
+  else
+    printf '%s\n' 'DRY_RUN=1: remote third_party directory will not be created.'
+  fi
+fi
+
 RSYNC_OPTIONS=(
   --archive
   --compress
@@ -134,6 +152,13 @@ fi
 
 printf 'Synchronizing %s to %s:%s ...\n' "$LOCAL_WS/src/" "$REMOTE_TARGET" "$REMOTE_WS/src/"
 rsync "${RSYNC_OPTIONS[@]}" "$LOCAL_WS/src/" "${REMOTE_TARGET}:${REMOTE_WS}/src/"
+
+if [[ "$HAS_THIRD_PARTY" == '1' ]]; then
+  printf 'Synchronizing %s to %s:%s ...\n' "$LOCAL_THIRD_PARTY/" "$REMOTE_TARGET" "$REMOTE_WS/third_party/"
+  rsync "${RSYNC_OPTIONS[@]}" "$LOCAL_THIRD_PARTY/" "${REMOTE_TARGET}:${REMOTE_WS}/third_party/"
+else
+  printf '%s\n' 'No local third_party directory; skipping third-party synchronization.'
+fi
 
 if [[ "$BUILD" == '1' && "$DRY_RUN" == '0' ]]; then
   remote_build_command="$(printf 'bash -s --'; printf ' %q' "$REMOTE_WS" "${BUILD_PACKAGE_ARRAY[@]}")"
