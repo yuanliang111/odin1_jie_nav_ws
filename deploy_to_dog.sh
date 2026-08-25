@@ -143,7 +143,9 @@ set -euo pipefail
 remote_ws="$1"
 shift
 cd -- "$remote_ws"
+set +u
 source /opt/ros/humble/setup.bash
+set -u
 colcon build --packages-select "$@"
 REMOTE_BUILD
 elif [[ "$BUILD" == '1' ]]; then
