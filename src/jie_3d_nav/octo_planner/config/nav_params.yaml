@@ -1,6 +1,6 @@
-relocalization_bin_file: /home/firefly/ros2_ws/src/odin_ros_driver/map/B5/map_20260424_110803.bin
-relocalization_pcd_file: /home/firefly/ros2_ws/src/odin_ros_driver/map/B5/Relocation_Map.pcd
-map_package_dir: /home/firefly/maps/B5
+relocalization_bin_file: /home/firefly/odin1_jie_nav_data/scene_20260824_150211/02_mindcloud/map_merged.bin
+relocalization_pcd_file: /home/firefly/odin1_jie_nav_data/scene_20260824_150211/02_mindcloud/scene_raw.pcd
+map_package_dir: /home/firefly/odin1_jie_nav_data/scene_20260824_150211/03_navigation/octomap_package
 show_rviz: false
 show_map_gui: false
 publish_d1_odom: false
