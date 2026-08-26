@@ -13,6 +13,7 @@
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>jie_octomap</exec_depend>
+  <exec_depend>genisom_bridge</exec_depend>
   <exec_depend>odin_ros_driver</exec_depend>
   <depend>nav_msgs</depend>
   <exec_depend>nav2_lifecycle_manager</exec_depend>
