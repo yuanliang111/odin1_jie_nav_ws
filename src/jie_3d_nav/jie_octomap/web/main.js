@@ -1158,10 +1158,11 @@ function resolveRobotPose() {
     "robot_base_link",
     "base_link",
     "base_footprint",
+    "imu",
   ];
   const directMapBase =
     getTfTransformAnyMatch(["map"], baseCandidates) ||
-    findTransformByChildPrefixMatch("map", ["odin1_base_link", "robot_base_link", "base_link", "base_footprint"]);
+    findTransformByChildPrefixMatch("map", baseCandidates);
   if (directMapBase) {
     setRobotTfStatus(`直接使用 map -> ${directMapBase.child}`);
     return applyRobotCenterOffset(
@@ -1183,7 +1184,7 @@ function resolveRobotPose() {
   const mapToOdom = getTfTransform("map", "odom");
   const odomToBase =
     getTfTransformAnyMatch(["odom"], baseCandidates) ||
-    findTransformByChildPrefixMatch("odom", ["odin1_base_link", "robot_base_link", "base_link", "base_footprint"]);
+    findTransformByChildPrefixMatch("odom", baseCandidates);
   if (mapToOdom && odomToBase) {
     setRobotTfStatus(`使用 map -> odom -> ${odomToBase.child}`);
     const mapYaw = yawFromQuaternion(
