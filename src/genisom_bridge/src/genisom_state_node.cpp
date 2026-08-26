@@ -13,6 +13,7 @@
 
 #include "geometry_msgs/msg/twist.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "std_msgs/msg/bool.hpp"
 #include "std_msgs/msg/string.hpp"
 #include "std_srvs/srv/set_bool.hpp"
 #include "zsibot_sdk/zsibot_api.h"
@@ -146,6 +147,12 @@ public:
     desired_command_subscription_ = create_subscription<geometry_msgs::msg::Twist>(
       "/dog/desired_cmd_normalized", 10,
       std::bind(&GenisomStateNode::desired_command_callback, this, std::placeholders::_1));
+    start_navigation_subscription_ = create_subscription<std_msgs::msg::Bool>(
+      "/start_navigation", 10,
+      std::bind(&GenisomStateNode::start_navigation_callback, this, std::placeholders::_1));
+    stop_navigation_subscription_ = create_subscription<std_msgs::msg::Bool>(
+      "/stop_navigation", 10,
+      std::bind(&GenisomStateNode::stop_navigation_callback, this, std::placeholders::_1));
     actuation_service_ = create_service<std_srvs::srv::SetBool>(
       "/dog/set_actuation_enabled",
       std::bind(&GenisomStateNode::set_actuation_enabled, this, std::placeholders::_1,
@@ -183,49 +190,82 @@ private:
     last_command_receipt_time_ = now();
   }
 
+  void start_navigation_callback(const std_msgs::msg::Bool::SharedPtr message)
+  {
+    if (message->data) {
+      std::string reason;
+      if (!request_enable("web", reason)) {
+        RCLCPP_WARN(get_logger(), "Web navigation start was rejected: %s", reason.c_str());
+      }
+      return;
+    }
+
+    request_disable("web");
+  }
+
+  void stop_navigation_callback(const std_msgs::msg::Bool::SharedPtr message)
+  {
+    if (message->data) {
+      request_disable("web");
+    }
+  }
+
   void set_actuation_enabled(
     const std::shared_ptr<std_srvs::srv::SetBool::Request> request,
     std::shared_ptr<std_srvs::srv::SetBool::Response> response)
   {
     if (!request->data) {
-      const bool was_sdk_control_confirmed = sdk_control_confirmed_;
-      send_zero_commands(3);
-      if (was_sdk_control_confirmed) {
-        executor_->SetCmd(zsibot::CmdCode::CMD_REMOTE_CONTROL_RIGHT);
-      }
-      actuation_enabled_ = false;
-      sdk_control_confirmed_ = false;
-      fault_latched_ = false;
-      latest_desired_command_.reset();
-      last_command_receipt_time_.reset();
-      actuation_state_ = ActuationState::DISABLED;
+      request_disable("service");
       response->success = true;
-      response->message = "Actuation disabled; zero input sent and confirmed SDK control returned to remote.";
+      response->message = "Actuation disabled through the shared safety path.";
       return;
     }
 
+    response->success = request_enable("service", response->message);
+  }
+
+  bool request_enable(const std::string & source, std::string & reason)
+  {
     if (!actuation_capable_) {
-      response->success = false;
-      response->message = "Actuation is unavailable because actuation_capable is false.";
-      return;
+      reason = "Actuation is unavailable because actuation_capable is false.";
+      return false;
     }
 
     if (actuation_enabled_) {
-      response->success = true;
-      response->message = "Actuation enable request is already active; waiting for SDK confirmation.";
-      return;
+      reason = "Actuation enable request is already active; waiting for SDK confirmation.";
+      return true;
     }
 
-    // Only this explicit human service action requests SDK control. Desired commands cannot.
+    // Only an explicit service request or Web start action reaches this function. Desired
+    // commands and planned paths have no path to this SDK-control request.
     actuation_enabled_ = true;
     sdk_control_confirmed_ = false;
     fault_latched_ = false;
     latest_desired_command_.reset();
     last_command_receipt_time_.reset();
     actuation_state_ = ActuationState::CONNECTING;
+    control_source_ = source;
+    last_enable_source_ = source;
     executor_->SetCmd(zsibot::CmdCode::CMD_SDK_CONTROL_RIGHT);
-    response->success = true;
-    response->message = "SDK control requested; waiting for connected SDK-mode confirmation.";
+    reason = "SDK control requested; waiting for connected SDK-mode confirmation.";
+    return true;
+  }
+
+  void request_disable(const std::string & source)
+  {
+    const bool was_sdk_control_confirmed = sdk_control_confirmed_;
+    send_zero_commands(3);
+    if (was_sdk_control_confirmed) {
+      executor_->SetCmd(zsibot::CmdCode::CMD_REMOTE_CONTROL_RIGHT);
+    }
+    actuation_enabled_ = false;
+    sdk_control_confirmed_ = false;
+    fault_latched_ = false;
+    latest_desired_command_.reset();
+    last_command_receipt_time_.reset();
+    actuation_state_ = ActuationState::DISABLED;
+    control_source_ = "none";
+    RCLCPP_INFO(get_logger(), "Actuation disabled by %s.", source.c_str());
   }
 
   void update()
@@ -383,6 +423,8 @@ private:
          << ",\"connected\":" << debug.connected
          << ",\"actuation_capable\":" << actuation_capable_
          << ",\"actuation_enabled\":" << actuation_enabled_
+         << ",\"control_source\":\"" << control_source_ << "\""
+         << ",\"last_enable_source\":\"" << last_enable_source_ << "\""
          << ",\"sdk_control_confirmed\":" << sdk_control_confirmed_
          << ",\"command_fresh\":" << debug.command_fresh
          << ",\"desired_forward\":" << debug.desired_forward
@@ -404,6 +446,8 @@ private:
   bool actuation_enabled_ = false;
   bool sdk_control_confirmed_ = false;
   bool fault_latched_ = false;
+  std::string control_source_ = "none";
+  std::string last_enable_source_ = "none";
   double max_forward_normalized_ = 0.0;
   double max_yaw_normalized_ = 0.0;
   double command_timeout_sec_ = 0.3;
@@ -414,6 +458,8 @@ private:
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr state_publisher_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr actuation_debug_publisher_;
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr desired_command_subscription_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr start_navigation_subscription_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr stop_navigation_subscription_;
   rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr actuation_service_;
   rclcpp::TimerBase::SharedPtr timer_;
 };
