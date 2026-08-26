@@ -19,6 +19,16 @@ def generate_launch_description():
         default_value="false",
         description="Allow explicit SDK-actuation enable requests after startup",
     )
+    max_forward_normalized_arg = DeclareLaunchArgument(
+        "max_forward_normalized",
+        default_value="0.05",
+        description="Maximum normalized GENISOM forward joystick command",
+    )
+    max_yaw_normalized_arg = DeclareLaunchArgument(
+        "max_yaw_normalized",
+        default_value="0.50",
+        description="Maximum normalized GENISOM yaw joystick command",
+    )
 
     genisom_state_node = Node(
         package="genisom_bridge",
@@ -30,7 +40,13 @@ def generate_launch_description():
             {
                 "actuation_capable": ParameterValue(
                     LaunchConfiguration("actuation_capable"), value_type=bool
-                )
+                ),
+                "max_forward_normalized": ParameterValue(
+                    LaunchConfiguration("max_forward_normalized"), value_type=float
+                ),
+                "max_yaw_normalized": ParameterValue(
+                    LaunchConfiguration("max_yaw_normalized"), value_type=float
+                ),
             },
         ],
     )
@@ -45,6 +61,8 @@ def generate_launch_description():
     return LaunchDescription(
         [
             actuation_capable_arg,
+            max_forward_normalized_arg,
+            max_yaw_normalized_arg,
             genisom_state_node,
             jie_dog_controller_node,
         ]

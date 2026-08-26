@@ -16,6 +16,16 @@ def generate_launch_description():
         default_value="false",
         description="Allow explicit SDK-actuation enable requests after startup",
     )
+    max_forward_normalized_arg = DeclareLaunchArgument(
+        "max_forward_normalized",
+        default_value="0.05",
+        description="Maximum normalized GENISOM forward joystick command",
+    )
+    max_yaw_normalized_arg = DeclareLaunchArgument(
+        "max_yaw_normalized",
+        default_value="0.50",
+        description="Maximum normalized GENISOM yaw joystick command",
+    )
     web_http_port_arg = DeclareLaunchArgument(
         "web_http_port",
         default_value="8088",
@@ -45,12 +55,16 @@ def generate_launch_description():
         ),
         launch_arguments={
             "actuation_capable": LaunchConfiguration("actuation_capable"),
+            "max_forward_normalized": LaunchConfiguration("max_forward_normalized"),
+            "max_yaw_normalized": LaunchConfiguration("max_yaw_normalized"),
         }.items(),
     )
 
     return LaunchDescription(
         [
             actuation_capable_arg,
+            max_forward_normalized_arg,
+            max_yaw_normalized_arg,
             web_http_port_arg,
             nav_launch,
             runtime_launch,
