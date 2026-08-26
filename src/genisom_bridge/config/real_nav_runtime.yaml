@@ -1,0 +1,15 @@
+genisom_state_node:
+  ros__parameters:
+    actuation_capable: false
+    max_forward_normalized: 0.05
+    max_yaw_normalized: 0.50
+    command_timeout_sec: 0.30
+    forward_joystick_index: 0
+    yaw_joystick_index: 2
+    yaw_joystick_sign: 1.0
+
+jie_dog_controller:
+  ros__parameters:
+    lookahead_distance: 0.40
+    turn_in_place_enter_angle: 0.60
+    turn_in_place_exit_angle: 0.30

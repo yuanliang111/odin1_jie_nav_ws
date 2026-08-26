@@ -42,4 +42,8 @@ target_link_libraries(genisom_state_node PRIVATE genisom_sdk Threads::Threads)
 install(TARGETS genisom_state_node
   DESTINATION lib/${PROJECT_NAME})
 
+install(
+  DIRECTORY launch config
+  DESTINATION share/${PROJECT_NAME})
+
 ament_package()
