@@ -3,7 +3,9 @@ project(genisom_bridge)
 
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(geometry_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
 find_package(Threads REQUIRED)
 
 set(GENISOM_SDK_ROOT
@@ -34,7 +36,7 @@ set_target_properties(genisom_sdk PROPERTIES
 
 add_executable(genisom_state_node src/genisom_state_node.cpp)
 target_compile_features(genisom_state_node PUBLIC cxx_std_20)
-ament_target_dependencies(genisom_state_node PUBLIC rclcpp std_msgs)
+ament_target_dependencies(genisom_state_node PUBLIC rclcpp geometry_msgs std_msgs std_srvs)
 target_link_libraries(genisom_state_node PRIVATE genisom_sdk Threads::Threads)
 
 install(TARGETS genisom_state_node

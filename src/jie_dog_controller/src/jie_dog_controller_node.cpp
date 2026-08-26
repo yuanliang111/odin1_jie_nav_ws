@@ -10,6 +10,7 @@
 #include <string>
 
 #include "geometry_msgs/msg/pose_stamped.hpp"
+#include "geometry_msgs/msg/twist.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "nav_msgs/msg/path.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -42,6 +43,8 @@ public:
       "/dog/state", 10,
       std::bind(&JieDogController::state_callback, this, std::placeholders::_1));
     debug_publisher_ = create_publisher<std_msgs::msg::String>("/dog/control_debug", 10);
+    desired_command_publisher_ = create_publisher<geometry_msgs::msg::Twist>(
+      "/dog/desired_cmd_normalized", 10);
     tracking_timer_ = create_wall_timer(
       std::chrono::milliseconds(100), std::bind(&JieDogController::tracking_update, this));
   }
@@ -87,28 +90,28 @@ private:
   {
     DebugValues debug;
     if (!last_path_) {
-      debug.state = "WAITING_PATH";
-      publish_debug(debug);
+      debug.state = "NO_PATH";
+      publish_zero_desired(debug);
       return;
     }
 
     debug.path_frame = last_path_->header.frame_id;
     if (debug.path_frame.empty()) {
       debug.state = "WAITING_TF";
-      publish_debug(debug);
+      publish_zero_desired(debug);
       return;
     }
 
     if (!latest_odometry_ || !last_odom_receipt_time_) {
       debug.state = "WAITING_ODOM";
-      publish_debug(debug);
+      publish_zero_desired(debug);
       return;
     }
 
     const auto odom_age = now() - *last_odom_receipt_time_;
     if (odom_age > rclcpp::Duration::from_seconds(0.5)) {
       debug.state = "STALE_ODOM";
-      publish_debug(debug);
+      publish_zero_desired(debug);
       return;
     }
 
@@ -122,7 +125,7 @@ private:
         robot_pose_odom, debug.path_frame, tf2::durationFromSec(0.05));
     } catch (const tf2::TransformException & exception) {
       debug.state = "WAITING_TF";
-      publish_debug(debug);
+      publish_zero_desired(debug);
       RCLCPP_DEBUG(get_logger(), "Waiting for %s <- %s TF: %s", debug.path_frame.c_str(),
         robot_pose_odom.header.frame_id.c_str(), exception.what());
       return;
@@ -154,7 +157,7 @@ private:
 
     if (!has_valid_waypoint) {
       debug.state = "NO_VALID_TARGET";
-      publish_debug(debug);
+      publish_zero_desired(debug);
       return;
     }
 
@@ -189,7 +192,7 @@ private:
 
     if (target_index == last_valid_index && debug.distance < 0.1) {
       debug.state = "GOAL_REACHED_VIRTUAL";
-      publish_debug(debug);
+      publish_zero_desired(debug);
       return;
     }
 
@@ -198,6 +201,21 @@ private:
     const double forward_scale = std::max(0.0, std::cos(debug.yaw_error));
     debug.desired_forward_cmd = std::min(0.5, debug.distance) * forward_scale;
     publish_debug(debug);
+    publish_desired(debug.desired_forward_cmd, debug.desired_yaw_cmd);
+  }
+
+  void publish_zero_desired(const DebugValues & debug)
+  {
+    publish_debug(debug);
+    publish_desired(0.0, 0.0);
+  }
+
+  void publish_desired(double forward, double yaw)
+  {
+    geometry_msgs::msg::Twist desired_message;
+    desired_message.linear.x = forward;
+    desired_message.angular.z = yaw;
+    desired_command_publisher_->publish(desired_message);
   }
 
   void publish_debug(const DebugValues & debug)
@@ -243,6 +261,7 @@ private:
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odometry_subscription_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr state_subscription_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr debug_publisher_;
+  rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr desired_command_publisher_;
   rclcpp::TimerBase::SharedPtr tracking_timer_;
 };
 
