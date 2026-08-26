@@ -123,6 +123,9 @@ public:
     max_forward_normalized_ = declare_parameter<double>("max_forward_normalized", 0.0);
     max_yaw_normalized_ = declare_parameter<double>("max_yaw_normalized", 0.0);
     command_timeout_sec_ = declare_parameter<double>("command_timeout_sec", 0.3);
+    forward_joystick_index_ = declare_parameter<int>("forward_joystick_index", 0);
+    yaw_joystick_index_ = declare_parameter<int>("yaw_joystick_index", 1);
+    yaw_joystick_sign_ = declare_parameter<double>("yaw_joystick_sign", 1.0);
 
     if (send_port <= 0 || send_port > 65535 || recv_port <= 0 || recv_port > 65535) {
       throw std::invalid_argument("GENISOM UDP ports must be in the range 1..65535");
@@ -134,6 +137,18 @@ public:
     }
     if (command_timeout_sec_ <= 0.0) {
       throw std::invalid_argument("command_timeout_sec must be positive");
+    }
+    if (forward_joystick_index_ < 0 || forward_joystick_index_ > 2) {
+      throw std::invalid_argument("forward_joystick_index must be one of 0, 1, or 2");
+    }
+    if (yaw_joystick_index_ < 0 || yaw_joystick_index_ > 2) {
+      throw std::invalid_argument("yaw_joystick_index must be one of 0, 1, or 2");
+    }
+    if (forward_joystick_index_ == yaw_joystick_index_) {
+      throw std::invalid_argument("forward_joystick_index and yaw_joystick_index must differ");
+    }
+    if (yaw_joystick_sign_ != 1.0 && yaw_joystick_sign_ != -1.0) {
+      throw std::invalid_argument("yaw_joystick_sign must be +1.0 or -1.0");
     }
 
     // This is the only ZsibotExecutor in the workspace. The default role is read-only;
@@ -181,6 +196,12 @@ private:
     double limited_yaw = 0.0;
     zsibot::ControlMode control_mode = zsibot::ControlMode::CM_NULL;
     zsibot::MotionMode motion_mode = zsibot::MotionMode::MM_NULL;
+    double speed = 0.0;
+    double angle_speed = 0.0;
+    double shift_speed = 0.0;
+    double body_gyro_z = 0.0;
+    double rpy_yaw = 0.0;
+    int model = 0;
   };
 
   void desired_command_callback(const geometry_msgs::msg::Twist::SharedPtr message)
@@ -279,6 +300,15 @@ private:
     debug.desired_forward = desired_forward();
     debug.desired_yaw = desired_yaw();
     debug.command_fresh = command_is_fresh();
+    const auto speed = executor_->GetSpeed();
+    const auto body_gyro = executor_->GetBodyGyro();
+    const auto rpy = executor_->GetRPY();
+    debug.speed = speed.speed;
+    debug.angle_speed = speed.angle_speed;
+    debug.shift_speed = speed.shift_speed;
+    debug.body_gyro_z = body_gyro[2];
+    debug.rpy_yaw = rpy[2];
+    debug.model = static_cast<int>(executor_->GetModel());
 
     if (!actuation_enabled_) {
       actuation_state_ = ActuationState::DISABLED;
@@ -383,9 +413,13 @@ private:
   void send_remote(double forward, double yaw)
   {
     // The unused joystick axes and all fourteen buttons remain fixed at zero.
-    const std::array<zsibot::float32_t, 4> joystick{
-      static_cast<zsibot::float32_t>(forward), static_cast<zsibot::float32_t>(yaw), 0.0F, 0.0F};
+    std::array<zsibot::float32_t, 4> joystick{};
+    joystick[static_cast<std::size_t>(forward_joystick_index_)] =
+      static_cast<zsibot::float32_t>(forward);
+    joystick[static_cast<std::size_t>(yaw_joystick_index_)] =
+      static_cast<zsibot::float32_t>(yaw * yaw_joystick_sign_);
     const std::array<zsibot::float32_t, 14> buttons{};
+    last_joystick_ = joystick;
     executor_->SetRemote(joystick, buttons);
   }
 
@@ -433,6 +467,19 @@ private:
          << ",\"limited_yaw\":" << debug.limited_yaw
          << ",\"max_forward_normalized\":" << max_forward_normalized_
          << ",\"max_yaw_normalized\":" << max_yaw_normalized_
+         << ",\"forward_joystick_index\":" << forward_joystick_index_
+         << ",\"yaw_joystick_index\":" << yaw_joystick_index_
+         << ",\"yaw_joystick_sign\":" << yaw_joystick_sign_
+         << ",\"joystick_0\":" << last_joystick_[0]
+         << ",\"joystick_1\":" << last_joystick_[1]
+         << ",\"joystick_2\":" << last_joystick_[2]
+         << ",\"joystick_3\":" << last_joystick_[3]
+         << ",\"speed\":" << debug.speed
+         << ",\"angle_speed\":" << debug.angle_speed
+         << ",\"shift_speed\":" << debug.shift_speed
+         << ",\"body_gyro_z\":" << debug.body_gyro_z
+         << ",\"rpy_yaw\":" << debug.rpy_yaw
+         << ",\"model\":" << debug.model
          << ",\"control_mode\":\"" << control_mode_name(debug.control_mode) << "\""
          << ",\"motion_mode\":\"" << motion_mode_name(debug.motion_mode) << "\""
          << "}";
@@ -451,9 +498,13 @@ private:
   double max_forward_normalized_ = 0.0;
   double max_yaw_normalized_ = 0.0;
   double command_timeout_sec_ = 0.3;
+  int forward_joystick_index_ = 0;
+  int yaw_joystick_index_ = 1;
+  double yaw_joystick_sign_ = 1.0;
   ActuationState actuation_state_ = ActuationState::DISABLED;
   std::optional<geometry_msgs::msg::Twist> latest_desired_command_;
   std::optional<rclcpp::Time> last_command_receipt_time_;
+  std::array<zsibot::float32_t, 4> last_joystick_{};
   std::unique_ptr<zsibot::ZsibotExecutor> executor_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr state_publisher_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr actuation_debug_publisher_;
