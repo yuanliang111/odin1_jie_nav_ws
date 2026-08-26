@@ -24,6 +24,7 @@ enum class ActuationState
   DISABLED,
   CONNECTING,
   WAITING_CONTROL,
+  WAITING_STATE,
   READY_ZERO,
   ACTIVE,
   STALE_COMMAND,
@@ -39,6 +40,8 @@ const char * actuation_state_name(ActuationState state)
       return "CONNECTING";
     case ActuationState::WAITING_CONTROL:
       return "WAITING_CONTROL";
+    case ActuationState::WAITING_STATE:
+      return "WAITING_STATE";
     case ActuationState::READY_ZERO:
       return "READY_ZERO";
     case ActuationState::ACTIVE:
@@ -86,6 +89,22 @@ const char * motion_mode_name(zsibot::MotionMode mode)
     case zsibot::MotionMode::MM_NULL:
     default:
       return "unknown";
+  }
+}
+
+bool normal_locomotion_motion_state(zsibot::MotionMode mode)
+{
+  // MotionMode represents laboratory/stunt activity, not ordinary locomotion permission.
+  // MM_FORBID means no laboratory mode and MM_REST means no stunt is in progress; both
+  // are normal states for navigation. Only an active stunt or an invalid state blocks it.
+  switch (mode) {
+    case zsibot::MotionMode::MM_FORBID:
+    case zsibot::MotionMode::MM_REST:
+      return true;
+    case zsibot::MotionMode::MM_RUNNING:
+    case zsibot::MotionMode::MM_NULL:
+    default:
+      return false;
   }
 }
 }  // namespace
@@ -169,7 +188,11 @@ private:
     std::shared_ptr<std_srvs::srv::SetBool::Response> response)
   {
     if (!request->data) {
+      const bool was_sdk_control_confirmed = sdk_control_confirmed_;
       send_zero_commands(3);
+      if (was_sdk_control_confirmed) {
+        executor_->SetCmd(zsibot::CmdCode::CMD_REMOTE_CONTROL_RIGHT);
+      }
       actuation_enabled_ = false;
       sdk_control_confirmed_ = false;
       fault_latched_ = false;
@@ -177,7 +200,7 @@ private:
       last_command_receipt_time_.reset();
       actuation_state_ = ActuationState::DISABLED;
       response->success = true;
-      response->message = "Actuation disabled; zero input requested when SDK control was confirmed.";
+      response->message = "Actuation disabled; zero input sent and confirmed SDK control returned to remote.";
       return;
     }
 
@@ -253,13 +276,20 @@ private:
     }
 
     if (executor_->GetFunctionMode() != zsibot::FunctionMode::FM_SDK ||
-      debug.motion_mode == zsibot::MotionMode::MM_FORBID ||
       debug.control_mode != zsibot::ControlMode::CM_MOVE_MODE ||
       !executor_->GetFaultInfo().empty())
     {
       fault_latched_ = true;
       actuation_state_ = ActuationState::FAULT;
       send_zero_commands(3);
+      debug.state = actuation_state_;
+      publish_actuation_debug(debug);
+      return;
+    }
+
+    if (!normal_locomotion_motion_state(debug.motion_mode)) {
+      actuation_state_ = ActuationState::WAITING_STATE;
+      send_zero_commands(1);
       debug.state = actuation_state_;
       publish_actuation_debug(debug);
       return;
