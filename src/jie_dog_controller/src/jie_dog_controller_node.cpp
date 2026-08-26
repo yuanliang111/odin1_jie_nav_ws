@@ -33,6 +33,17 @@ public:
       throw std::invalid_argument("lookahead_distance must be positive");
     }
 
+    turn_in_place_enter_angle_ = declare_parameter<double>("turn_in_place_enter_angle", 0.60);
+    turn_in_place_exit_angle_ = declare_parameter<double>("turn_in_place_exit_angle", 0.30);
+    if (turn_in_place_exit_angle_ < 0.0 ||
+      turn_in_place_enter_angle_ <= 0.0 ||
+      turn_in_place_exit_angle_ >= turn_in_place_enter_angle_)
+    {
+      throw std::invalid_argument(
+              "turn_in_place_exit_angle must be non-negative and less than "
+              "turn_in_place_enter_angle");
+    }
+
     path_subscription_ = create_subscription<nav_msgs::msg::Path>(
       "/planned_path", 10,
       std::bind(&JieDogController::path_callback, this, std::placeholders::_1));
@@ -65,6 +76,9 @@ private:
     double target_local_y = 0.0;
     double distance = 0.0;
     double yaw_error = 0.0;
+    double raw_yaw_error = 0.0;
+    double control_yaw_error = 0.0;
+    bool turn_in_place = false;
     double desired_forward_cmd = 0.0;
     double desired_yaw_cmd = 0.0;
   };
@@ -77,6 +91,8 @@ private:
   void path_callback(const nav_msgs::msg::Path::SharedPtr message)
   {
     last_path_ = *message;
+    last_control_yaw_error_.reset();
+    turn_in_place_active_ = false;
   }
 
   void odometry_callback(const nav_msgs::msg::Odometry::SharedPtr message)
@@ -188,20 +204,54 @@ private:
     debug.target_local_x = cos_yaw * dx + sin_yaw * dy;
     debug.target_local_y = -sin_yaw * dx + cos_yaw * dy;
     debug.distance = std::hypot(debug.target_local_x, debug.target_local_y);
-    debug.yaw_error = std::atan2(debug.target_local_y, debug.target_local_x);
+    debug.raw_yaw_error = std::atan2(debug.target_local_y, debug.target_local_x);
+    debug.yaw_error = debug.raw_yaw_error;
+    debug.control_yaw_error = last_control_yaw_error_ ?
+      unwrap_angle_near(debug.raw_yaw_error, *last_control_yaw_error_) :
+      debug.raw_yaw_error;
+    last_control_yaw_error_ = debug.control_yaw_error;
 
     if (target_index == last_valid_index && debug.distance < 0.1) {
       debug.state = "GOAL_REACHED_VIRTUAL";
+      turn_in_place_active_ = false;
+      last_control_yaw_error_.reset();
       publish_zero_desired(debug);
       return;
     }
 
+    const double abs_control_yaw_error = std::abs(debug.control_yaw_error);
+    if (turn_in_place_active_) {
+      if (abs_control_yaw_error <= turn_in_place_exit_angle_) {
+        turn_in_place_active_ = false;
+      }
+    } else if (abs_control_yaw_error >= turn_in_place_enter_angle_) {
+      turn_in_place_active_ = true;
+    }
+
     debug.state = "TRACKING_VIRTUAL";
-    debug.desired_yaw_cmd = std::clamp(debug.yaw_error, -1.0, 1.0);
-    const double forward_scale = std::max(0.0, std::cos(debug.yaw_error));
-    debug.desired_forward_cmd = std::min(0.5, debug.distance) * forward_scale;
+    debug.turn_in_place = turn_in_place_active_;
+    debug.desired_yaw_cmd = std::clamp(debug.control_yaw_error, -1.0, 1.0);
+    if (turn_in_place_active_) {
+      debug.desired_forward_cmd = 0.0;
+    } else {
+      const double forward_scale = std::max(0.0, std::cos(debug.control_yaw_error));
+      debug.desired_forward_cmd = std::min(0.5, debug.distance) * forward_scale;
+    }
     publish_debug(debug);
     publish_desired(debug.desired_forward_cmd, debug.desired_yaw_cmd);
+  }
+
+  static double unwrap_angle_near(double raw, double reference)
+  {
+    constexpr double kPi = 3.14159265358979323846;
+    constexpr double kTwoPi = 2.0 * kPi;
+    while (raw - reference > kPi) {
+      raw -= kTwoPi;
+    }
+    while (raw - reference < -kPi) {
+      raw += kTwoPi;
+    }
+    return raw;
   }
 
   void publish_zero_desired(const DebugValues & debug)
@@ -239,6 +289,9 @@ private:
          << ",\"target_local_y\":" << debug.target_local_y
          << ",\"distance\":" << debug.distance
          << ",\"yaw_error\":" << debug.yaw_error
+         << ",\"raw_yaw_error\":" << debug.raw_yaw_error
+         << ",\"control_yaw_error\":" << debug.control_yaw_error
+         << ",\"turn_in_place\":" << (debug.turn_in_place ? "true" : "false")
          << ",\"desired_forward_cmd\":" << debug.desired_forward_cmd
          << ",\"desired_yaw_cmd\":" << debug.desired_yaw_cmd
          << ",\"forward_cmd\":" << forward_cmd
@@ -251,9 +304,13 @@ private:
   }
 
   double lookahead_distance_ = 0.4;
+  double turn_in_place_enter_angle_ = 0.60;
+  double turn_in_place_exit_angle_ = 0.30;
   std::optional<nav_msgs::msg::Path> last_path_;
   std::optional<nav_msgs::msg::Odometry> latest_odometry_;
   std::optional<rclcpp::Time> last_odom_receipt_time_;
+  std::optional<double> last_control_yaw_error_;
+  bool turn_in_place_active_ = false;
   std::string last_dog_state_;
   tf2_ros::Buffer tf_buffer_;
   tf2_ros::TransformListener tf_listener_;
